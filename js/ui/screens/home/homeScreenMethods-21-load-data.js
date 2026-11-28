@@ -86,6 +86,7 @@ export function createHomeScreenMethods21() {
     catalogShouldShowOnHome,
     catalogSkipStep,
     catalogSupportsExtra,
+    selectHomeCatalogDescriptorsToLoad,
     getSidebarProfileState,
     CW_MAX_VISIBLE_ITEMS,
     HOME_ADDON_MANIFEST_TIMEOUT_MS,
@@ -371,9 +372,13 @@ export function createHomeScreenMethods21() {
       });
       this.homeCatalogSnapshotKey = homeCatalogSnapshotKey;
 
+      // Disabled rows are dropped by sortAndFilterRows anyway. Skip them here
+      // and follow the saved Home order, so the first batch holds the rows the
+      // user sees first.
+      const homeCatalogDescriptors = selectHomeCatalogDescriptorsToLoad(uniqueCatalogDescriptors, HomeCatalogStore.get());
       const initialCatalogLoad = this.getInitialCatalogLoadCount();
-      const initialDescriptors = uniqueCatalogDescriptors.slice(0, initialCatalogLoad);
-      const deferredDescriptors = uniqueCatalogDescriptors.slice(initialCatalogLoad);
+      const initialDescriptors = homeCatalogDescriptors.slice(0, initialCatalogLoad);
+      const deferredDescriptors = homeCatalogDescriptors.slice(initialCatalogLoad);
 
       const progressiveInitialRows = new Map();
       const initialRowsPromise = this.fetchCatalogRows(initialDescriptors, {
