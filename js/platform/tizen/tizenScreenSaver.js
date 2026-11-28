@@ -1,7 +1,40 @@
 const SCREEN_SAVER_OFF = 0;
 const SCREEN_SAVER_ON = 1;
+const DEFAULT_REASON = "ambient-mode";
 
+const activeReasons = new Set();
 let blocked = false;
+let exiting = false;
+let boundExitDocument = null;
+
+function normalizeReason(reason) {
+  const value = String(reason ?? "").trim();
+  return value || DEFAULT_REASON;
+}
+
+function handleBeforeExitApp() {
+  exiting = true;
+  activeReasons.clear();
+  blocked = false;
+}
+
+function bindExitListener() {
+  const doc = globalThis.document;
+  if (!doc || typeof doc.addEventListener !== "function" || boundExitDocument === doc) {
+    return;
+  }
+  if (boundExitDocument && typeof boundExitDocument.removeEventListener === "function") {
+    try {
+      boundExitDocument.removeEventListener("nuvio:beforeExitApp", handleBeforeExitApp);
+    } catch (_) {
+      // Ignore cleanup failures on synthetic test documents.
+    }
+  }
+  boundExitDocument = doc;
+  doc.addEventListener("nuvio:beforeExitApp", handleBeforeExitApp);
+}
+
+bindExitListener();
 
 function applyScreenSaver(state) {
   try {
@@ -19,16 +52,23 @@ function applyScreenSaver(state) {
 }
 
 // Samsung's screensaver covers app content with a black screen. Ambient Mode
-// must keep it disabled while it owns the idle screen.
+// and active playback each hold an independent reason so neither can re-enable
+// the screensaver while the other still needs the display awake.
 export const TizenScreenSaver = {
-  block() {
+  block(reason = DEFAULT_REASON) {
+    bindExitListener();
+    if (exiting) return;
+    activeReasons.add(normalizeReason(reason));
     if (blocked) return;
     blocked = true;
     applyScreenSaver(SCREEN_SAVER_OFF);
   },
 
-  unblock() {
-    if (!blocked) return;
+  unblock(reason = DEFAULT_REASON) {
+    bindExitListener();
+    if (exiting) return;
+    activeReasons.delete(normalizeReason(reason));
+    if (!blocked || activeReasons.size > 0) return;
     blocked = false;
     applyScreenSaver(SCREEN_SAVER_ON);
   }

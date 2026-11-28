@@ -33,11 +33,29 @@ export function createPlayerControllerMethods18() {
       } catch (error) {
         this.lastPlaybackErrorCode = 4;
         this.clearKeySession = null;
+        this.isPlaying = false;
+        this.playbackBuffering = false;
+        this.startupAudioGateActive = false;
+        this.syncPlaybackKeepAwake?.();
         const reason = String(error?.message || error || "ClearKey unavailable");
         throw new Error(`ClearKey decryption is not available (${reason})`, { cause: error });
       }
     },
-    async play(
+    play(url, options = {}) {
+      const playToken = Number(this.playRequestToken || 0) + 1;
+      return this.executePlaySession(url, options).catch((error) => {
+        if (this.playRequestToken === playToken) {
+          this.isPlaying = false;
+          this.playbackBuffering = false;
+          this.startupAudioGateActive = false;
+          this.suppressedNativePauseEvents = 0;
+          this.suppressedUnpausedNativePause = false;
+          this.syncPlaybackKeepAwake?.();
+        }
+        throw error;
+      });
+    },
+    async executePlaySession(
       url,
       {
         itemId = null,
@@ -92,6 +110,11 @@ export function createPlayerControllerMethods18() {
       this.watchProgressSession = { completedKeys: new Set() };
       this.lastSavedProgressPositionMs = 0;
       this.playbackSessionActive = true;
+      this.playbackPaused = false;
+      this.playbackBuffering = true;
+      this.suppressedNativePauseEvents = 0;
+      this.suppressedUnpausedNativePause = false;
+      this.syncPlaybackKeepAwake?.();
       this.applyStartupAudioGateToVideo();
 
       this.currentItemId = itemId;
@@ -352,13 +375,32 @@ export function createPlayerControllerMethods18() {
 
       this.teardownAdaptiveInstances();
       this.teardownAvPlay();
+      this.playbackEngine = "none";
       Array.from(this.video.querySelectorAll("source")).forEach((node) => node.remove());
-      this.video.pause();
+      let armedPauseSuppression = false;
+      if (!this.video.paused) {
+        this.suppressedNativePauseEvents = Number(this.suppressedNativePauseEvents || 0) + 1;
+        armedPauseSuppression = true;
+      }
+      try {
+        this.video.pause();
+      } catch (_) {
+        if (armedPauseSuppression) {
+          this.suppressedNativePauseEvents = Math.max(0, Number(this.suppressedNativePauseEvents || 0) - 1);
+        }
+        this.suppressedUnpausedNativePause = false;
+        // Older TV media elements can throw while the native pipeline is tearing down.
+      }
       this.video.removeAttribute("src");
       this.video.load();
       this.resetNativeMediaState();
       if (tizenProxyUnavailable) {
         this.isPlaying = false;
+        this.playbackBuffering = false;
+        this.startupAudioGateActive = false;
+        this.suppressedNativePauseEvents = 0;
+        this.suppressedUnpausedNativePause = false;
+        this.syncPlaybackKeepAwake?.();
         this.stopProgressSaving();
         throw new Error("Tizen playback proxy unavailable; declared request headers cannot be forwarded");
       }
@@ -367,6 +409,25 @@ export function createPlayerControllerMethods18() {
         : this.isLikelyDashMimeType(sourceType)
           ? "native-dash"
           : "native-file";
+      const finalizeFallbackStart = (fallbackStarted) => {
+        if (!fallbackStarted) {
+          return false;
+        }
+        if (
+          !this.lastPlaybackErrorCode &&
+          !this.isPlaybackEnded() &&
+          this.playbackSessionActive &&
+          this.playbackEngine !== "none" &&
+          this.isPlaybackRequestActive(playToken, playbackUrl)
+        ) {
+          this.isPlaying = true;
+          this.syncPlaybackKeepAwake?.();
+          this.startProgressSaving();
+        } else {
+          this.stopProgressSaving();
+        }
+        return true;
+      };
 
       // Lets PlayerScreen retry a stuck direct AVPlay start through the local proxy.
       this.lastTizenAvPlayRoute =
@@ -378,6 +439,11 @@ export function createPlayerControllerMethods18() {
         if (!avplayStarted) {
           if (tizenAvPlayFallbackForProxyUnavailable) {
             this.isPlaying = false;
+            this.playbackBuffering = false;
+            this.startupAudioGateActive = false;
+            this.suppressedNativePauseEvents = 0;
+            this.suppressedUnpausedNativePause = false;
+            this.syncPlaybackKeepAwake?.();
             this.stopProgressSaving();
             throw new Error("AVPlay could not start HLS while the Tizen playback proxy was unavailable");
           }
@@ -388,6 +454,11 @@ export function createPlayerControllerMethods18() {
               return;
             }
             this.isPlaying = false;
+            this.playbackBuffering = false;
+            this.startupAudioGateActive = false;
+            this.suppressedNativePauseEvents = 0;
+            this.suppressedUnpausedNativePause = false;
+            this.syncPlaybackKeepAwake?.();
             this.stopProgressSaving();
             this.emitVideoEvent("error", {
               playbackEngine: this.getPlatformAvplayEngineName(),
@@ -405,11 +476,7 @@ export function createPlayerControllerMethods18() {
               if (!this.isUnsupportedSourceError(error) || !this.canUseAvPlay()) {
                 return false;
               }
-              const fallbackStarted = this.playWithAvPlay(playbackUrl, requestHeaders, sourceType, playToken);
-              if (fallbackStarted) {
-                this.isPlaying = true;
-              }
-              return fallbackStarted;
+              return finalizeFallbackStart(this.playWithAvPlay(playbackUrl, requestHeaders, sourceType, playToken));
             }
           });
         }
@@ -418,6 +485,12 @@ export function createPlayerControllerMethods18() {
         if (!hlsStarted) {
           if (this.currentClearKeys) {
             // The native HLS pipeline has no CDM to decrypt the samples with.
+            this.isPlaying = false;
+            this.playbackBuffering = false;
+            this.startupAudioGateActive = false;
+            this.suppressedNativePauseEvents = 0;
+            this.suppressedUnpausedNativePause = false;
+            this.syncPlaybackKeepAwake?.();
             throw new Error("ClearKey needs the MSE HLS pipeline, which is not available");
           }
           this.applyNativeSource(playbackUrl, sourceType || "application/vnd.apple.mpegurl", "native-hls");
@@ -432,6 +505,12 @@ export function createPlayerControllerMethods18() {
         if (!dashStarted) {
           if (this.currentClearKeys) {
             // The native DASH pipeline has no CDM to decrypt the samples with.
+            this.isPlaying = false;
+            this.playbackBuffering = false;
+            this.startupAudioGateActive = false;
+            this.suppressedNativePauseEvents = 0;
+            this.suppressedUnpausedNativePause = false;
+            this.syncPlaybackKeepAwake?.();
             throw new Error("ClearKey needs the MSE DASH pipeline, which is not available");
           }
           this.applyNativeSource(playbackUrl, sourceType || "application/dash+xml", "native-dash");
@@ -451,11 +530,7 @@ export function createPlayerControllerMethods18() {
             if (!this.isUnsupportedSourceError(error)) {
               return false;
             }
-            const fallbackStarted = this.playWithHlsJs(playbackUrl, requestHeaders, playToken);
-            if (fallbackStarted) {
-              this.isPlaying = true;
-            }
-            return fallbackStarted;
+            return finalizeFallbackStart(this.playWithHlsJs(playbackUrl, requestHeaders, playToken));
           }
         });
       } else if (preferredEngine === "native-dash") {
@@ -468,11 +543,7 @@ export function createPlayerControllerMethods18() {
             if (!this.isUnsupportedSourceError(error) || !this.canUseDashJs()) {
               return false;
             }
-            const fallbackStarted = this.playWithDashJs(playbackUrl, playToken);
-            if (fallbackStarted) {
-              this.isPlaying = true;
-            }
-            return fallbackStarted;
+            return finalizeFallbackStart(this.playWithDashJs(playbackUrl, playToken));
           }
         });
       } else {
@@ -497,17 +568,22 @@ export function createPlayerControllerMethods18() {
             if (!this.isUnsupportedSourceError(error) || !this.canUseAvPlay() || !this.isLikelyDirectFileUrl(playbackUrl)) {
               return false;
             }
-            const fallbackStarted = this.playWithAvPlay(playbackUrl, requestHeaders, sourceType, playToken);
-            if (fallbackStarted) {
-              this.isPlaying = true;
-            }
-            return fallbackStarted;
+            return finalizeFallbackStart(this.playWithAvPlay(playbackUrl, requestHeaders, sourceType, playToken));
           }
         });
       }
 
+      if (
+        this.lastPlaybackErrorCode ||
+        this.isPlaybackEnded() ||
+        !this.playbackSessionActive ||
+        !this.isPlaybackRequestActive(playToken, playbackUrl)
+      ) {
+        return;
+      }
+
       this.isPlaying = true;
-      this.syncWebOsPlaybackKeepAwake();
+      this.syncPlaybackKeepAwake?.();
       this.startProgressSaving();
     }
   };

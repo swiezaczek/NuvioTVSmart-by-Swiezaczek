@@ -131,6 +131,7 @@ async function fallback(controller, state) {
   if (!active(controller, state) || state.fallingBack) return;
   state.fallingBack = true;
   state.preparing = false;
+  controller.syncPlaybackKeepAwake?.();
   controller.tizenDtsAudioFailures.add(state.key);
   clearInterval(state.poll);
   state.worker?.terminate();
@@ -364,6 +365,7 @@ export function createTizenDtsAudioMethods() {
           state.pausedForPrepare = true;
         } catch (_) {}
       }
+      this.syncPlaybackKeepAwake?.();
       emitChanged(this);
       void (async () => {
         if (!attempt || this.tizenDtsAudioFailures.has(key)) {
@@ -378,6 +380,7 @@ export function createTizenDtsAudioMethods() {
           }
           // A supported track needs no conversion state once it plays.
           if (active(this, state) && !state.fallingBack) this.tizenDtsAudioState = null;
+          this.syncPlaybackKeepAwake?.();
           return;
         }
         try {

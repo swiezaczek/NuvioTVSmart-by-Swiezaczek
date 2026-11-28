@@ -2,7 +2,7 @@
 import * as internals from "./playerController.js";
 
 export function createPlayerControllerMethods02() {
-  const { Platform, WebOsLunaService, subscribeWebOsCompanionService, WebOSPlayerExtensions } = internals;
+  const { Platform, WebOsLunaService, subscribeWebOsCompanionService, WebOSPlayerExtensions, TizenScreenSaver } = internals;
 
   return {
     isLikelyDirectFileUrl(url) {
@@ -35,6 +35,38 @@ export function createPlayerControllerMethods02() {
       } else {
         WebOSPlayerExtensions.stopPlaybackKeepAwake();
       }
+    },
+    isPlaybackBuffering() {
+      if (!this.playbackSessionActive || this.isPlaybackEnded() || this.playbackPaused) {
+        return false;
+      }
+      return Boolean(
+        this.playbackBuffering || this.avplayBufferingStartedAt > 0 || this.startupAudioGateActive || this.tizenDtsAudioState?.preparing
+      );
+    },
+    shouldKeepTizenPlaybackAwake() {
+      const hidden = Boolean(globalThis.document?.hidden || globalThis.document?.visibilityState === "hidden");
+      return Boolean(
+        Platform.isTizen() &&
+        this.playbackSessionActive &&
+        !this.isPlaybackEnded() &&
+        !hidden &&
+        (this.isPlaying || this.isPlaybackBuffering())
+      );
+    },
+    syncTizenPlaybackKeepAwake() {
+      if (!Platform.isTizen()) {
+        return;
+      }
+      if (this.shouldKeepTizenPlaybackAwake()) {
+        TizenScreenSaver.block("player-session");
+      } else {
+        TizenScreenSaver.unblock("player-session");
+      }
+    },
+    syncPlaybackKeepAwake() {
+      this.syncWebOsPlaybackKeepAwake();
+      this.syncTizenPlaybackKeepAwake();
     },
     startWebOsPlaybackKeepAlive() {
       if (!Platform.isWebOS()) {

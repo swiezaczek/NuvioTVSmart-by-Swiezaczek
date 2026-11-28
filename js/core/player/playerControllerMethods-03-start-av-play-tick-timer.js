@@ -64,7 +64,7 @@ export function createPlayerControllerMethods03() {
       try {
         this.video.pause();
         this.isPlaying = false;
-        this.syncWebOsPlaybackKeepAwake();
+        this.syncPlaybackKeepAwake?.();
       } catch (_) {
         // Ignore pause failures while the media element is still loading.
       }
@@ -83,8 +83,9 @@ export function createPlayerControllerMethods03() {
             console.warn("Playback start after startup gate rejected", error);
           });
         }
+        this.playbackPaused = false;
         this.isPlaying = true;
-        this.syncWebOsPlaybackKeepAwake();
+        this.syncPlaybackKeepAwake?.();
       } catch (error) {
         if (!this.isExpectedPlayInterruption(error)) {
           console.warn("Playback start after startup gate rejected", error);
@@ -122,16 +123,17 @@ export function createPlayerControllerMethods03() {
           try {
             avplay?.pause?.();
             this.isPlaying = false;
-            this.syncWebOsPlaybackKeepAwake();
             this.stopAvPlayTickTimer();
           } catch (_) {
             // Ignore AVPlay pause failures while replacing the source.
           }
         }
+        this.syncPlaybackKeepAwake?.();
         return;
       }
 
       if (!resume || !wasGated) {
+        this.syncPlaybackKeepAwake?.();
         return;
       }
       if (this.isUsingAvPlay()) {
@@ -139,11 +141,15 @@ export function createPlayerControllerMethods03() {
         // startPreparedAvPlayPlayback() queues the start until it settles.
         if (this.avplayReady || this.avplaySeekInFlight) {
           this.startPreparedAvPlayPlayback();
+        } else {
+          this.syncPlaybackKeepAwake?.();
         }
         return;
       }
       if (nativePlaybackWasPausedForGate || this.video?.paused) {
         this.resumeNativePlaybackAfterStartupGate();
+      } else {
+        this.syncPlaybackKeepAwake?.();
       }
     },
     // Samsung allows setSelectTrack(AUDIO) in PLAYING only, so a startup
@@ -222,8 +228,10 @@ export function createPlayerControllerMethods03() {
         // AVPlay can report a startup error and still complete preparation. A
         // successful play call means that transient code must not remain fatal.
         this.lastPlaybackErrorCode = 0;
+        this.playbackBuffering = false;
+        this.playbackPaused = false;
         this.isPlaying = true;
-        this.syncWebOsPlaybackKeepAwake();
+        this.syncPlaybackKeepAwake?.();
         this.reapplyAvPlayPlaybackRate();
         this.reapplyTizenAvPlayDisplayRect();
         this.reapplyTizenAvPlayDisplayRect(250);
@@ -257,8 +265,10 @@ export function createPlayerControllerMethods03() {
         return true;
       } catch (error) {
         this.lastPlaybackErrorCode = this.mapAvPlayErrorToMediaCode(error?.name || error?.message || error);
+        this.playbackBuffering = false;
         this.isPlaying = false;
-        this.syncWebOsPlaybackKeepAwake();
+        this.startupAudioGateActive = false;
+        this.syncPlaybackKeepAwake?.();
         this.emitVideoEvent("error", {
           playbackEngine: this.playbackEngine,
           mediaErrorCode: this.lastPlaybackErrorCode

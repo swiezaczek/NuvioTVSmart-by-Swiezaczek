@@ -173,6 +173,7 @@ export function createPlayerControllerMethods08() {
       this.avplayDurationMs = 0;
       this.avplayBufferingProgress = null;
       this.avplayBufferingStartedAt = 0;
+      this.playbackBuffering = false;
       this.avplayLastBufferingDurationMs = 0;
       this.avplayLastErrorDiagnostic = null;
       this.appliedAvPlayPlaybackRate = 1;

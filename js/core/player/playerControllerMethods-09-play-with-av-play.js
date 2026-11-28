@@ -31,6 +31,10 @@ export function createPlayerControllerMethods09() {
       this.avplaySubtitleDiagnosticCallbackPendingAt = 0;
       this.lastPlaybackErrorCode = 0;
       this.playbackEngine = this.getPlatformAvplayEngineName();
+      if (!this.playbackPaused) {
+        this.playbackBuffering = true;
+      }
+      this.syncPlaybackKeepAwake?.();
       this.emitVideoEvent("waiting", { playbackEngine: this.playbackEngine });
 
       try {
@@ -38,12 +42,17 @@ export function createPlayerControllerMethods09() {
         // Do not expose the AVPlay session to resize/focus callbacks until open
         // has moved the native object out of NONE and into IDLE.
         this.avplayActive = true;
+        this.suppressedNativePauseEvents = 0;
+        this.suppressedUnpausedNativePause = false;
         this.configureAvPlayForSource(requestHeaders);
         this.configureAvPlayBuffering();
       } catch (error) {
         this.lastPlaybackErrorCode = this.mapAvPlayErrorToMediaCode([error?.name, error?.message].filter(Boolean).join(": ") || error);
+        this.isPlaying = false;
+        this.playbackBuffering = false;
         this.teardownAvPlay();
         this.playbackEngine = "none";
+        this.syncPlaybackKeepAwake?.();
         return false;
       }
 
@@ -58,6 +67,10 @@ export function createPlayerControllerMethods09() {
             }
             this.avplayBufferingProgress = null;
             this.avplayReady = false;
+            if (!this.playbackPaused) {
+              this.playbackBuffering = true;
+            }
+            this.syncPlaybackKeepAwake?.();
             this.emitVideoEvent("waiting", { playbackEngine: this.playbackEngine });
           },
           onbufferingprogress: (percent) => {
@@ -86,6 +99,8 @@ export function createPlayerControllerMethods09() {
               this.avplayLastBufferingDurationMs = Math.max(0, Date.now() - this.avplayBufferingStartedAt);
             }
             this.avplayBufferingStartedAt = 0;
+            this.playbackBuffering = false;
+            this.syncPlaybackKeepAwake?.();
             if (this.avplaySeekInFlight) {
               return;
             }
@@ -129,7 +144,8 @@ export function createPlayerControllerMethods09() {
             }
             this.avplayEnded = true;
             this.isPlaying = false;
-            this.syncWebOsPlaybackKeepAwake();
+            this.playbackBuffering = false;
+            this.syncPlaybackKeepAwake?.();
             this.stopAvPlayTickTimer();
             this.refreshAvPlayTimeline();
             const completedDurationMs = Number(this.avplayDurationMs || 0);
@@ -190,8 +206,12 @@ export function createPlayerControllerMethods09() {
             }
             this.avplayReady = false;
             this.isPlaying = false;
-            this.syncWebOsPlaybackKeepAwake();
+            this.playbackBuffering = false;
+            this.startupAudioGateActive = false;
+            this.suppressedNativePauseEvents = 0;
+            this.suppressedUnpausedNativePause = false;
             this.avplayBufferingStartedAt = 0;
+            this.syncPlaybackKeepAwake?.();
             this.lastPlaybackErrorCode = this.mapAvPlayErrorToMediaCode(errorValue);
             this.stopAvPlayTickTimer();
             this.emitVideoEvent("error", {
@@ -270,9 +290,13 @@ export function createPlayerControllerMethods09() {
         const avplaySnapshot = this.getAvPlayDiagnosticSnapshot();
         this.lastPlaybackErrorCode = this.mapAvPlayErrorToMediaCode(errorValue);
         this.isPlaying = false;
-        this.syncWebOsPlaybackKeepAwake();
+        this.playbackBuffering = false;
+        this.startupAudioGateActive = false;
+        this.suppressedNativePauseEvents = 0;
+        this.suppressedUnpausedNativePause = false;
         this.teardownAvPlay();
         this.playbackEngine = "none";
+        this.syncPlaybackKeepAwake?.();
         this.emitVideoEvent("error", {
           playbackEngine: this.getPlatformAvplayEngineName(),
           mediaErrorCode: this.lastPlaybackErrorCode,

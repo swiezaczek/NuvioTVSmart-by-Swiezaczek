@@ -23,6 +23,7 @@ import { detectWebOsAudioCapabilities } from "../../platform/webos/webosAudioCap
 import { WebOsLunaService } from "../../platform/webos/webosLunaService.js";
 import { subscribeWebOsCompanionService } from "../../platform/webos/webosCompanionService.js";
 import { WebOSPlayerExtensions } from "../../platform/webos/webosPlayerExtensions.js";
+import { TizenScreenSaver } from "../../platform/tizen/tizenScreenSaver.js";
 import { loadStreamingLibs } from "../../runtime/loadStreamingLibs.js";
 import { WATCH_PROGRESS_UNKNOWN_DURATION_PERCENT } from "../../domain/model/watchProgress.js";
 import { parseAspectRatio } from "./playerAspect.js";
@@ -91,6 +92,7 @@ export {
   WebOsLunaService,
   subscribeWebOsCompanionService,
   WebOSPlayerExtensions,
+  TizenScreenSaver,
   loadStreamingLibs,
   WATCH_PROGRESS_UNKNOWN_DURATION_PERCENT,
   parseAspectRatio,
@@ -268,6 +270,10 @@ function resolveWebOsSubtitleFontSizeLevel(value) {
 export const PlayerController = {
   video: null,
   isPlaying: false,
+  playbackBuffering: false,
+  playbackPaused: false,
+  suppressedNativePauseEvents: 0,
+  suppressedUnpausedNativePause: false,
   currentItemId: null,
   currentItemType: null,
   currentImdbId: null,

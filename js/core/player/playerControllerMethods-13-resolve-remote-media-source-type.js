@@ -119,7 +119,13 @@ export function createPlayerControllerMethods13() {
 
       const emitFatalHlsNetworkError = (data = {}, responseCode = 0) => {
         this.lastPlaybackErrorCode = 2;
+        this.isPlaying = false;
+        this.playbackBuffering = false;
+        this.startupAudioGateActive = false;
+        this.suppressedNativePauseEvents = 0;
+        this.suppressedUnpausedNativePause = false;
         this.teardownHlsInstance();
+        this.syncPlaybackKeepAwake?.();
         this.emitVideoEvent("error", {
           playbackEngine: "hls.js",
           mediaErrorCode: 2,
@@ -159,7 +165,13 @@ export function createPlayerControllerMethods13() {
             audioAppendFailures += 1;
             if (audioAppendFailures >= HLS_MAX_AUDIO_APPEND_FAILURES) {
               this.lastPlaybackErrorCode = 3;
+              this.isPlaying = false;
+              this.playbackBuffering = false;
+              this.startupAudioGateActive = false;
+              this.suppressedNativePauseEvents = 0;
+              this.suppressedUnpausedNativePause = false;
               this.teardownHlsInstance();
+              this.syncPlaybackKeepAwake?.();
               this.emitVideoEvent("error", {
                 playbackEngine: "hls.js",
                 mediaErrorCode: 3,
@@ -198,7 +210,13 @@ export function createPlayerControllerMethods13() {
         if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
           if (mediaRecoveryAttempts >= 1) {
             this.lastPlaybackErrorCode = 3;
+            this.isPlaying = false;
+            this.playbackBuffering = false;
+            this.startupAudioGateActive = false;
+            this.suppressedNativePauseEvents = 0;
+            this.suppressedUnpausedNativePause = false;
             this.teardownHlsInstance();
+            this.syncPlaybackKeepAwake?.();
             this.emitVideoEvent("error", {
               playbackEngine: "hls.js",
               mediaErrorCode: 3,
@@ -216,7 +234,13 @@ export function createPlayerControllerMethods13() {
           }
         }
         this.lastPlaybackErrorCode = 4;
+        this.isPlaying = false;
+        this.playbackBuffering = false;
+        this.startupAudioGateActive = false;
+        this.suppressedNativePauseEvents = 0;
+        this.suppressedUnpausedNativePause = false;
         this.teardownHlsInstance();
+        this.syncPlaybackKeepAwake?.();
         this.emitVideoEvent("error", {
           playbackEngine: "hls.js",
           mediaErrorCode: 4,
@@ -240,6 +264,14 @@ export function createPlayerControllerMethods13() {
         } catch (error) {
           console.warn("HLS source attach failed", error);
           this.lastPlaybackErrorCode = 4;
+          this.isPlaying = false;
+          this.playbackBuffering = false;
+          this.startupAudioGateActive = false;
+          this.suppressedNativePauseEvents = 0;
+          this.suppressedUnpausedNativePause = false;
+          this.teardownHlsInstance();
+          this.playbackEngine = "none";
+          this.syncPlaybackKeepAwake?.();
           this.emitVideoEvent("error", {
             playbackEngine: "hls.js",
             mediaErrorCode: 4,
@@ -279,6 +311,14 @@ export function createPlayerControllerMethods13() {
           playPromise.catch((error) => {
             if (this.isExpectedPlayInterruption(error)) {
               return;
+            }
+            if (this.isPlaybackRequestActive(playToken, url)) {
+              this.isPlaying = false;
+              this.playbackBuffering = false;
+              this.startupAudioGateActive = false;
+              this.suppressedNativePauseEvents = 0;
+              this.suppressedUnpausedNativePause = false;
+              this.syncPlaybackKeepAwake?.();
             }
             console.warn("HLS playback start rejected", error);
           });
