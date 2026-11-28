@@ -233,6 +233,7 @@ export function createPlayerControllerMethods12() {
         return false;
       }
       this.playbackEngine = String(engineName || "native-file");
+      this.lastPlaybackErrorCode = 0;
       return true;
     },
     applyWebOsStagedNativeSource(url, engineName = "native-file") {
@@ -242,6 +243,7 @@ export function createPlayerControllerMethods12() {
       Array.from(this.video.querySelectorAll("source")).forEach((node) => node.remove());
       this.video.src = url;
       this.playbackEngine = String(engineName || "native-file");
+      this.lastPlaybackErrorCode = 0;
       return true;
     },
     async prepareWebOsStagedNativePlayback(playToken = null, url = null) {

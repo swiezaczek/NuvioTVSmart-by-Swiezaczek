@@ -102,7 +102,12 @@ export function createPlayerControllerMethods16() {
           }
         }
         this.isPlaying = false;
+        this.playbackBuffering = false;
+        this.startupAudioGateActive = false;
+        this.suppressedNativePauseEvents = 0;
+        this.suppressedUnpausedNativePause = false;
         this.stopProgressSaving();
+        this.syncPlaybackKeepAwake?.();
         console.warn(warningLabel, error);
         return null;
       };
@@ -139,7 +144,12 @@ export function createPlayerControllerMethods16() {
             return;
           }
           this.isPlaying = false;
+          this.playbackBuffering = false;
+          this.startupAudioGateActive = false;
+          this.suppressedNativePauseEvents = 0;
+          this.suppressedUnpausedNativePause = false;
           this.stopProgressSaving();
+          this.syncPlaybackKeepAwake?.();
           console.warn(warningLabel, error);
         });
     },
@@ -197,14 +207,17 @@ export function createPlayerControllerMethods16() {
       this.video.addEventListener("ended", () => {
         if (this.isLivePlaybackItemType() && this.playbackSessionActive) {
           this.isPlaying = true;
+          this.playbackBuffering = false;
+          this.playbackPaused = false;
           this.resume();
-          this.syncWebOsPlaybackKeepAwake();
+          this.syncPlaybackKeepAwake?.();
           return;
         }
         this.isPlaying = false;
+        this.playbackBuffering = false;
         this.stopProgressSaving();
         this.cancelProgressSyncAfterSeek();
-        this.syncWebOsPlaybackKeepAwake();
+        this.syncPlaybackKeepAwake?.();
         const context = this.createProgressContext();
         const durationMs = Math.floor(this.getDurationSeconds() * 1000);
         const positionMs = Math.floor(this.getCurrentTimeSeconds() * 1000);
@@ -215,9 +228,13 @@ export function createPlayerControllerMethods16() {
 
       this.video.addEventListener("error", (e) => {
         this.isPlaying = false;
+        this.playbackBuffering = false;
+        this.startupAudioGateActive = false;
+        this.suppressedNativePauseEvents = 0;
+        this.suppressedUnpausedNativePause = false;
         this.stopProgressSaving();
         this.cancelProgressSyncAfterSeek();
-        this.syncWebOsPlaybackKeepAwake();
+        this.syncPlaybackKeepAwake?.();
         const customErrorCode = Number(e?.detail?.mediaErrorCode || 0);
         const nativeErrorCode = Number(this.video?.error?.code || 0);
         const mediaErrorCode = customErrorCode || nativeErrorCode || this.getLastPlaybackErrorCode();
@@ -237,6 +254,25 @@ export function createPlayerControllerMethods16() {
         }
         if (event?.type === "canplay" || event?.type === "playing") {
           this.reapplyWebOsPlaybackRate().catch(() => {});
+          if (event?.type === "playing" || !this.isUsingAvPlay()) {
+            this.playbackBuffering = false;
+            if (event?.type === "playing") {
+              this.suppressedNativePauseEvents = 0;
+              this.suppressedUnpausedNativePause = false;
+              if (
+                !this.isUsingAvPlay() &&
+                !String(this.playbackEngine || "").endsWith("avplay") &&
+                this.playbackEngine !== "none" &&
+                !this.startupAudioGateActive &&
+                this.playbackSessionActive &&
+                !this.video?.paused
+              ) {
+                this.playbackPaused = false;
+                this.isPlaying = true;
+              }
+            }
+            this.syncPlaybackKeepAwake?.();
+          }
         }
         if (event?.type === "playing" && this.playbackSessionActive && this.isPlaying) {
           this.startProgressSaving();
@@ -246,11 +282,68 @@ export function createPlayerControllerMethods16() {
       this.video.addEventListener("loadeddata", syncNativeMediaId);
       this.video.addEventListener("canplay", syncNativeMediaId);
       this.video.addEventListener("playing", syncNativeMediaId);
+      this.video.addEventListener("play", () => {
+        if (
+          !this.isUsingAvPlay() &&
+          !String(this.playbackEngine || "").endsWith("avplay") &&
+          this.playbackEngine !== "none" &&
+          !this.startupAudioGateActive &&
+          this.playbackSessionActive &&
+          !this.video?.paused &&
+          !this.isWebOsExactSeekInFlight?.()
+        ) {
+          if (Number(this.suppressedNativePauseEvents || 0) > 0) {
+            this.suppressedNativePauseEvents = 0;
+            this.suppressedUnpausedNativePause = true;
+          }
+          this.playbackPaused = false;
+          this.isPlaying = true;
+          this.syncPlaybackKeepAwake?.();
+          return;
+        }
+        if (!this.isUsingAvPlay() && this.playbackSessionActive && !this.playbackPaused) {
+          this.syncPlaybackKeepAwake?.();
+        }
+      });
+      this.video.addEventListener("pause", () => {
+        if (Number(this.suppressedNativePauseEvents || 0) > 0) {
+          this.suppressedNativePauseEvents -= 1;
+          this.suppressedUnpausedNativePause = false;
+          return;
+        }
+        if (this.suppressedUnpausedNativePause) {
+          this.suppressedUnpausedNativePause = false;
+          if (!this.video?.paused) {
+            return;
+          }
+        }
+        if (
+          !this.isUsingAvPlay() &&
+          !String(this.playbackEngine || "").endsWith("avplay") &&
+          this.playbackEngine !== "none" &&
+          !this.startupAudioGateActive &&
+          this.playbackSessionActive
+        ) {
+          this.playbackBuffering = false;
+          this.isPlaying = false;
+          this.playbackPaused = true;
+          this.syncPlaybackKeepAwake?.();
+        }
+      });
       this.video.addEventListener("waiting", () => {
         // Android takes a local checkpoint when playback enters buffering, then
         // waits for the next real playing event before resuming the periodic job.
         this.saveProgressIfNeeded();
         this.stopProgressSaving();
+        if (
+          this.playbackSessionActive &&
+          !this.playbackPaused &&
+          !this.isPlaybackEnded() &&
+          (this.isUsingAvPlay() || !this.video?.paused)
+        ) {
+          this.playbackBuffering = true;
+          this.syncPlaybackKeepAwake?.();
+        }
       });
       ["playing", "timeupdate", "pause", "ended", "emptied"].forEach((eventName) => {
         this.video.addEventListener(eventName, () => this.clearHlsBufferStallWarning());
@@ -260,6 +353,8 @@ export function createPlayerControllerMethods16() {
       });
       this.video.addEventListener("emptied", () => {
         this.resetNativeMediaState();
+        this.playbackBuffering = false;
+        this.syncPlaybackKeepAwake?.();
       });
 
       this.video.addEventListener("playing", () => {
@@ -290,6 +385,9 @@ export function createPlayerControllerMethods16() {
         this.visibilityFlushHandler = () => {
           if (document.visibilityState === "hidden") {
             this.lifecycleFlushHandler?.();
+          }
+          if (Platform.isTizen()) {
+            this.syncTizenPlaybackKeepAwake?.();
           }
         };
         window.addEventListener("pagehide", this.lifecycleFlushHandler);

@@ -12,6 +12,10 @@ export function createPlayerControllerMethods19() {
   return {
     pause() {
       if (!this.video) return;
+      this.suppressedNativePauseEvents = 0;
+      this.suppressedUnpausedNativePause = false;
+      this.playbackPaused = true;
+      this.playbackBuffering = false;
       if (this.webOsDtsAudioState) {
         this.webOsDtsAudioState.resumePlayback = false;
         this.webOsDtsAudioState.controlPaused = true;
@@ -25,15 +29,19 @@ export function createPlayerControllerMethods19() {
       if (this.isUsingAvPlay()) {
         const avplay = this.getAvPlay();
         if (!avplay) {
+          this.isPlaying = false;
+          this.syncPlaybackKeepAwake?.();
           return;
         }
         try {
           avplay.pause?.();
           this.isPlaying = false;
-          this.syncWebOsPlaybackKeepAwake();
+          this.syncPlaybackKeepAwake?.();
           this.stopAvPlayTickTimer();
           this.emitVideoEvent("pause", { playbackEngine: this.playbackEngine });
         } catch (_) {
+          this.isPlaying = false;
+          this.syncPlaybackKeepAwake?.();
           // Ignore AVPlay pause failures.
         }
         return;
@@ -41,10 +49,11 @@ export function createPlayerControllerMethods19() {
 
       if (!this.setWebOsExactSeekPaused(true)) this.video.pause();
       this.isPlaying = false;
-      this.syncWebOsPlaybackKeepAwake();
+      this.syncPlaybackKeepAwake?.();
     },
     resume() {
       if (!this.video) return;
+      this.playbackPaused = false;
       if (this.webOsDtsAudioState) {
         this.webOsDtsAudioState.resumePlayback = true;
         this.webOsDtsAudioState.controlPaused = false;
@@ -58,6 +67,7 @@ export function createPlayerControllerMethods19() {
       }
       if (this.startupAudioGateActive) {
         this.applyStartupAudioGateToVideo();
+        this.syncPlaybackKeepAwake?.();
         return;
       }
 
@@ -70,7 +80,7 @@ export function createPlayerControllerMethods19() {
           const playToken = this.playRequestToken;
           avplay.play?.();
           this.isPlaying = true;
-          this.syncWebOsPlaybackKeepAwake();
+          this.syncPlaybackKeepAwake?.();
           this.reapplyAvPlayPlaybackRate();
           this.startAvPlayTickTimer();
           this.emitVideoEvent("playing", { playbackEngine: this.playbackEngine });
@@ -85,6 +95,9 @@ export function createPlayerControllerMethods19() {
           setTimeout(applyResumeAvPlayState, 0);
           setTimeout(applyResumeAvPlayState, 300);
         } catch (error) {
+          this.isPlaying = false;
+          this.playbackBuffering = false;
+          this.syncPlaybackKeepAwake?.();
           this.lastPlaybackErrorCode = this.mapAvPlayErrorToMediaCode(error?.name || error?.message || error);
           console.warn("Playback resume rejected", error);
         }
@@ -92,20 +105,26 @@ export function createPlayerControllerMethods19() {
       }
 
       if (this.setWebOsExactSeekPaused(false)) {
-        this.syncWebOsPlaybackKeepAwake();
+        this.syncPlaybackKeepAwake?.();
         return;
       }
+      const playToken = this.playRequestToken;
       const playPromise = this.video.play();
       if (playPromise && typeof playPromise.catch === "function") {
         playPromise.catch((error) => {
           if (this.isExpectedPlayInterruption(error)) {
             return;
           }
+          if (playToken === this.playRequestToken) {
+            this.isPlaying = false;
+            this.playbackBuffering = false;
+            this.syncPlaybackKeepAwake?.();
+          }
           console.warn("Playback resume rejected", error);
         });
       }
       this.isPlaying = true;
-      this.syncWebOsPlaybackKeepAwake();
+      this.syncPlaybackKeepAwake?.();
     },
     stop({ forceCloudSync = true, allowCloudSync = true, flushProgress = true } = {}) {
       const seekTargetSeconds = this.getWebOsExactSeekTargetSeconds?.();
@@ -126,12 +145,21 @@ export function createPlayerControllerMethods19() {
         ? this.flushCurrentProgress({ forceCloudSync, allowCloudSync, seekTargetSeconds })
         : Promise.resolve(false);
       if (!this.playbackSessionActive) {
+        this.suppressedNativePauseEvents = 0;
+        this.suppressedUnpausedNativePause = false;
+        this.playbackPaused = false;
+        this.playbackBuffering = false;
+        this.isPlaying = false;
         this.clearWebOsTrackSelections();
-        this.syncWebOsPlaybackKeepAwake();
+        this.syncPlaybackKeepAwake?.();
         return flushPromise;
       }
+      this.suppressedNativePauseEvents = 0;
+      this.suppressedUnpausedNativePause = false;
       this.playbackSessionActive = false;
-      this.syncWebOsPlaybackKeepAwake();
+      this.playbackPaused = false;
+      this.playbackBuffering = false;
+      this.syncPlaybackKeepAwake?.();
       this.setStartupAudioGate(false, { resume: false });
 
       try {
@@ -160,7 +188,9 @@ export function createPlayerControllerMethods19() {
       }
 
       this.isPlaying = false;
-      this.syncWebOsPlaybackKeepAwake();
+      this.playbackPaused = false;
+      this.playbackBuffering = false;
+      this.syncPlaybackKeepAwake?.();
       this.currentItemId = null;
       this.currentItemType = null;
       this.currentImdbId = null;

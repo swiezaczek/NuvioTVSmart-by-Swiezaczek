@@ -182,8 +182,8 @@ export const AmbientMode = {
   },
   setTizenScreenSaverBlocked(blocked) {
     if (!Platform.isTizen() || this.exiting) return;
-    if (blocked) TizenScreenSaver.block();
-    else TizenScreenSaver.unblock();
+    if (blocked) TizenScreenSaver.block("ambient-mode");
+    else TizenScreenSaver.unblock("ambient-mode");
   },
   allowed(settings) {
     const route = Router.getCurrent();

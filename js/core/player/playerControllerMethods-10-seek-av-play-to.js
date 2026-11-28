@@ -105,6 +105,8 @@ export function createPlayerControllerMethods10() {
           state: this.getAvPlayState()
         });
         this.avplayReady = true;
+        this.playbackBuffering = false;
+        this.syncPlaybackKeepAwake?.();
         this.reapplyAvPlayPlaybackRate();
         this.retryPendingAvPlayStartupAudioTrackSelection();
         this.applyPendingAvPlayAudioTrackSelection();
@@ -217,7 +219,9 @@ export function createPlayerControllerMethods10() {
         this.teardownAvPlay();
         this.playbackEngine = "none";
         this.isPlaying = false;
-        this.syncWebOsPlaybackKeepAwake();
+        this.playbackBuffering = false;
+        this.startupAudioGateActive = false;
+        this.syncPlaybackKeepAwake?.();
         this.lastPlaybackErrorCode = this.mapAvPlayErrorToMediaCode("timeout");
         this.emitVideoEvent("error", {
           playbackEngine: failedPlaybackEngine,
