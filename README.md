@@ -10,7 +10,7 @@
 >
 > - **Smoother UI navigation & fewer micro-stutters**: self-contained Hero artwork Blob Worker, `FileReaderSync` data-URL poster/logo commits, camera-scroll-aware poster & row hydration pacing, vertical fast-scroll guard, bounded artwork caching, and `Home`-scoped `watchTvFramePace` (with burst/repeat protection) + Tizen 9 EngineFS loopback hardening.
 > - **Frame-synced trailer unmute (zero audio-before-video)**: keeps trailer audio muted until `firstFrame` / `requestVideoFrameCallback` visual reveal (`0 ms` reveal delay) with an autoplay-policy pause fallback.
-> - **OLED-friendly HDR & subtitle upgrades**: linear HDR bitmap subtitle dimming, accurate SDR/HDR stream detection (avoiding false HDR triggers on tone-mapped/HLS SDR), live `hdrTextColor` editing during HDR playback, calibrated `75%–150%` line spacing aligned with Android TV (`1.15`), and subtitle outline thickness.
+> - **OLED-friendly HDR & subtitle upgrades**: instant flicker-free HDR UI dimming before the first HDR frame (including the loading overlay and buffering spinner), linear HDR bitmap subtitle dimming, accurate SDR/HDR stream detection (avoiding false HDR triggers on tone-mapped/HLS SDR), live `hdrTextColor` editing during HDR playback, calibrated `75%–150%` line spacing aligned with Android TV (`1.15`), and subtitle outline thickness.
 > - **Extra UX & session hygiene**: Profile edit/copy PIN gate, FolderDetail poster hold-menu & top-header scroll snap, and cleaner sign-out/worker/cache teardown.
 >
 > ### Additional Benefits for Samsung Tizen + Vetro Users
